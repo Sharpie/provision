@@ -77,12 +77,23 @@ def provision(docker_platform, inventory_location)
     break unless stdout.include?(ports)
     raise 'All front facing ports are in use.' if front_facing_port == 2230
   end
-  deb_family_systemd_volume = if (docker_platform =~ %r{debian|ubuntu}) && (docker_platform !~ %r{debian8|ubuntu14})
-                                '--volume /sys/fs/cgroup:/sys/fs/cgroup:ro'
-                              else
-                                ''
-                              end
-  creation_command = "docker run -d #{deb_family_systemd_volume} --privileged -p #{front_facing_port}:22 --name #{full_container_name} #{docker_platform}"
+
+  platform_flags = case docker_platform
+                   when /centos6|ubuntu14\.04/
+                     []
+                   else
+                     %w[--tmpfs=/run
+                        --tmpfs=/run/lock
+                        --tmpfs=/tmp:exec
+                        --tmpfs=/var/lib/journal
+                        --volume=/sys/fs/cgroup:/sys/fs/cgroup:ro]
+                   end
+  if (docker_platform =~ /debian8|ubuntu16\.04/)
+    # Versions of SystemD older than 219 need some elevated privileges.
+    platform_flags += %w[--cap-add=SYS_ADMIN]
+  end
+
+  creation_command = "docker run -d #{platform_flags.join(' ')} -p #{front_facing_port}:22 --name #{full_container_name} #{docker_platform}"
   run_local_command(creation_command)
   install_ssh_components(platform, full_container_name)
   fix_ssh(platform, full_container_name)
